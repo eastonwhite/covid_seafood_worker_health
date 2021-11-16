@@ -1,0 +1,255 @@
+---
+editor_options:
+  chunk_output_type: console
+fontsize: 12pt
+geometry: margin=1in
+header-includes: \usepackage{float} \usepackage{lineno} \usepackage{setspace}
+  \usepackage[round]{natbib} \bibpunct[; ]{(}{)}{,}{a}{}{,} \usepackage{color} \usepackage{totcount}
+  \newtotcounter{citenum} \def\oldcite{} \let\oldcite=\bibcite \def\bibcite{\stepcounter{citenum}\oldcite}
+  \usepackage{fancyhdr} \pagestyle{fancy} \fancyhf{} \fancyfoot[LE,LO]{\textcolor{red}{Preprint
+  - This work has not yet been peer-reviewed}} \fancyfoot[RE,RO]{\thepage} \renewcommand{\headrulewidth}{0pt}
+output:
+  pdf_document:
+    fig_caption: true
+    keep_tex: yes
+    number_sections: no
+  word_document: default
+  html_document:
+    df_print: paged
+---
+
+
+
+
+\begin{center}
+	
+\textbf{\Large The Direct and Indirect Effects of a Global Pandemic on US Fishers and Seafood Workers}
+	
+\textsc{Easton White$^{1,2*}$, Jill Levine$^{3}$, Amanda Moeser$^{4}$, Julie Sorensen$^{5}$}
+\vspace{3 mm}
+
+\small{$^{1}$Department of Biological Sciences, University of New Hampshire, Durham, NH, 03824 \\
+$^{2}$Gund Institute for Environment, University of Vermont, Burlington, VT, 05482 \\
+$^{3}$Department of Biology; Department of Forestry, University of Vermont, Burlington, VT 05401 \\
+$^{4}$Environmental Studies Department, Antioch University New England, Keene, NH, 03431 \\
+$^{5}$Northeast Center for Occupational Health and Safety: Agriculture, Forestry and Fishing, Bassett Healthcare Network, Cooperstown, New York, 13326
+}
+
+
+$\text{*}$ Corresponding author: Easton R. White (Easton.White@unh.edu)
+\end{center}
+
+\vspace{3 mm}
+
+\tableofcontents
+
+
+
+
+```{r load_packages,echo=F,warning=F,message=F}
+if (!require("pacman",character.only = TRUE))
+  {
+    install.packages("pacman",dep=TRUE)
+    if(!require("pacman",character.only = TRUE)) stop("Package not found")
+  }
+
+# Keeping below source for github package. Ask Easton whether pacman works for github packages or not.
+#devtools::install_github("rensa/stickylabeller")
+pacman::p_load(patchwork, dplyr, tidyr, ggplot2,stringr,knitr,tidyquant)
+
+# Default chunk behavior
+knitr::opts_chunk$set(echo = FALSE,warning = FALSE, message = FALSE)
+
+theme_easton <- function(){
+  theme_classic() + theme(legend.position = 'none',panel.border = element_blank(),panel.grid.major = element_blank(),panel.grid.minor = element_blank(),axis.text=element_text(size=8),
+        axis.title=element_text(size=14)) 
+}
+```
+
+\pagebreak
+
+# Figure 1 - News coverage
+
+```{r,echo=F,fig.cap='Rolling mean (weekly average) for the percent of total news articles mentioning (seafood OR fish) AND (worker OR employee)  AND (covid OR coronavirus). The vertical red line denotes the date (11-March-2020) when the World Health Organization declared a global pandemic. \\label{fig:news}'}
+# New analysis figure
+#gdelt <- read.csv(file = 'data/GDELT_news_articles_seafoodworker_COVID.csv',header=T)
+gdelt <- read.csv(file = 'data/test.csv',header=T)
+
+gdelt <- gdelt %>%
+  mutate(Date = as.Date(Date,format='%Y-%m-%d')) %>%
+  mutate(Week = format(Date,'%V')) %>%
+  filter(Date >= as.Date('2020-01-01')) %>%
+  spread(key = Series,value = Value) %>%
+  mutate(percent_seafood_covid = 100*`Article Count`/`Total Monitored Articles`) 
+
+total_articles <- sum(gdelt$`Article Count`)
+
+rollmean <- gdelt %>%
+  tq_mutate(
+    # tq_mutate args
+    select     = percent_seafood_covid,
+    mutate_fun = rollapply, 
+    width      = 7,
+    align      = "right",
+    FUN        = mean,
+    col_rename = "mean_7"
+  ) 
+
+#ggplot(data = gdelt, aes(x=Date,y=percent_seafood_covid)) + geom_line() + ylab('Percent of articles') + theme_easton()
+
+ggplot(data = rollmean, aes(x=Date,y=mean_7)) + geom_line() + ylab('Rolling mean for percent of articles') + theme_easton() + geom_vline(xintercept = as.Date('2020-03-11'),color='red',linetype=2)
+  
+```
+
+
+
+\pagebreak
+
+<!--Outbreak data-->
+
+```{r, echo=F}
+# Data loading and cleaning
+
+# Please reach out to Easton.White@unh.edu if you are interested in seeing the raw data
+fern <- readxl::read_xlsx(path='data/FERN outbreak database 072321.xlsx',na = c('Unknown',''))
+
+# Edit one entry
+fern[fern$`Parent company`=='Kraft Heinz' & fern$State=='Oregon',] <- structure(list(State="Oregon",Town="Ontario",`Value cases`=26,`Value deaths` =0,`Plant description`='Snack foods plant',`Parent company` ='Kraft Heinz',Latitude = 44.032027999999997,Longitude = -116.960409,`Type of plant`='Frozen food plant',`Facility category`='Food processing',`Date added` = structure(1594857600, tzone = "UTC", class = c("POSIXct", "POSIXt"))), row.names = c(NA, -1L), class = c("tbl_df","tbl", "data.frame"))
+       
+# Re move particular NA's
+fern <- fern %>%
+  filter(is.na(Longitude)==FALSE | is.na(Latitude)==FALSE)
+
+# Seafood, oyster, tuna, fish
+fern$seafood = ifelse(str_detect(fern$`Type of plant`,'Seafood|seafood|fish|Fish|Oyster|oyster|tuna|Tuna', negate = FALSE)==TRUE,'seafood','non-seafood')
+
+fern <- fern %>%
+  filter(is.na(seafood)==FALSE)
+```
+
+
+# Figure 2 - COVID-19 cases over time
+
+```{r,echo=F,eval=F}
+ggplot(data=fern,aes(x=as.Date(`Date added`),y=`Value cases`)) + geom_point() + geom_smooth(method='loess') + facet_wrap(facets = ~seafood,scales = 'free_y')
+```
+
+
+```{r,echo=F, fig.height = 6.5, fig.cap='Total monthly COVID-19 cases and outbreaks for non-seafood and seafood workers. \\label{fig:time}'}
+# Summarize by month
+fern_by_month <- fern  %>%
+  #filter(seafood==TRUE) %>%
+  mutate(Month = as.numeric(format(`Date added`,'%m')),Year = as.numeric(format(`Date added`,'%Y'))) %>%
+  group_by(Month,Year,seafood) %>%
+  summarize(Total_cases = sum(`Value cases`,na.rm=T),Total_deaths = sum(`Value deaths`,na.rm = T),Num_outbreaks = n()) %>%
+  complete(tidyr::expand(.,Month=1:12,Year=2020:2021,seafood),fill = list(Total_cases=0,Total_deaths=0,Num_outbreaks=0)) %>%
+  mutate(Date = as.Date(paste(Year,Month,15,sep='-'),format='%Y-%m-%d'))
+
+fern_by_month <- fern_by_month %>%
+  filter(Date < "2021-07-24 UTC")
+
+p1 <- ggplot(data=fern_by_month,aes(x=Date,y=Total_cases)) + geom_point()   + facet_wrap(~seafood, scales = 'free_y') + ylab('Number of cases') + xlab('') + theme_easton() + theme(panel.spacing.x = unit(2,"lines"))
+
+p2 <- ggplot(data=fern_by_month,aes(x=Date,y=Num_outbreaks)) + geom_point()  + facet_wrap(~seafood, scales = 'free_y') + ylab('Number of outbreaks') + xlab('')+ theme_easton() + theme(panel.spacing.x = unit(2,"lines"))
+
+require(ggpubr)
+figure=ggarrange(p1,p2, ncol=1, nrow=2, common.legend = TRUE, align='hv')
+figure=annotate_figure(figure,bottom = text_grob("Date", color = "black",size=16,vjust=0,hjust=-0.4))       
+figure 
+
+```
+
+
+\pagebreak 
+
+# Figure 3 - map of cases
+
+```{r,echo=F, fig.cap = 'Spatial distribution of COVID-19 cases across the food system industry. The data is compiled from news articles from April 2020 to July 2021. \\label{fig:map}'}
+require(usmap)
+fern_trans <- fern %>%
+  filter(is.na(seafood)==FALSE) %>%
+  select(Longitude,Latitude,`Value cases`,seafood) %>%
+  usmap_transform()
+
+#fern_trans_sea <- fern %>%
+#  filter(seafood=='seafood') %>%
+#  select(Longitude,Latitude,`Value cases`) %>%
+#  usmap_transform()
+
+plot_usmap(regions = "states") + 
+  #labs(title = "Spatial distribution of COVID-19 cases",
+   #    subtitle = "Data is compiled from news articles for April 2020 to July 2021") + 
+  theme(panel.background=element_blank(), legend.position = 'top',legend.title=element_text(size=10),legend.text=element_text(size=10)) + geom_point(data = fern_trans, 
+             aes(x = Longitude.1, 
+                 y = Latitude.1,
+                 size=Value.cases,
+                 color=seafood),
+                alpha=0.75) +
+ scale_color_manual(values = c('non-seafood'='lightgrey','seafood' = 'blue')) + 
+  labs(size = 'Number of cases', color = 'Industry')
+```
+
+
+
+\pagebreak
+
+# Table 1 - comparison to other sectors
+
+```{r,echo=F,eval=T}
+fern_by_sector <- fern %>%
+  filter(is.na(seafood)==FALSE) %>%
+  group_by(seafood) %>%
+  summarize(Total_cases = sum(`Value cases`,na.rm=T),Total_deaths = sum(`Value deaths`,na.rm = T), Num_outbreaks = n())
+
+# Create columns standarized by the number of workers...
+worker_nums = c(1596500 - 29920,29920)
+
+fern_by_sector <- fern_by_sector %>%
+  mutate(Total_cases_per_1000workers = 1000*Total_cases/worker_nums,Total_deaths_per_1000workers = 1000*Total_deaths/worker_nums,Num_outbreaks_per_1000workers = 1000*Num_outbreaks/worker_nums) %>%
+  mutate(Industry = seafood, Cases=Total_cases, Outbreaks = Num_outbreaks, `Cases per 1000 workers` = Total_cases_per_1000workers,`Outbreaks per 1000 workers` = Num_outbreaks_per_1000workers) %>%
+  select(Industry, Cases, Outbreaks, `Cases per 1000 workers`,`Outbreaks per 1000 workers`)
+
+
+kable(fern_by_sector,caption = 'Number of cases and outbreaks by food industry sector. The total number of workers for each sector (for May 2020) come from the U.S. Bureau of Labor Statistics with 1,596,500 and 29,290 employed in the overall food manufacturing (NAICS 311000) and seafood product preparation (NAICS 311700), respectively. ')
+
+#Food Manufacturing (NAICS 311000) in the USA (May 2020 = 1596500) and the total number of people employeed in Seafood Product Preparation and Packaging (NAICS 311700), which was 29,920 (citations)
+```
+
+
+
+<!-- # Table 2 - comparison to Alaska paper -->
+
+```{r,echo=F}
+
+# Table 2 - comparison to Alaska paper
+seafood_by_state <- fern %>%
+  #filter(`Date added` < "2020-10-14 UTC") %>%
+  filter(seafood=='seafood') %>%
+  group_by(State) %>%
+  summarize(Total_cases = sum(`Value cases`,na.rm=T),Total_deaths = sum(`Value deaths`,na.rm = T), Total_outbreaks = n())  %>%
+  mutate(Cases = Total_cases) %>%
+  select(State, Cases)
+
+# The numbers for ALaska were in line with that other paper (539 part of outbreaks in seafood from March 1-October 13, 2020).
+#kable(seafood_by_state,caption = 'Cases by state')
+```
+
+
+# Results
+
+## News articles
+
+Between March 2020 and September 2021, we examined a total of `r total_articles` US news articles that specifically mentioned "seafood worker" and "COVID" (Fig. \ref{fig:news}). We found that most of the news coverage around COVID-19 and seafood workers occurred during the beginning of the pandemic and in early 2021 (Fig. \ref{fig:news}). The coverage mostly included information on migrant seafood workers, vaccination campaigns, and outbreaks. The coverage also included articles focused on new policies implemented to combat the pandemic, such as financial assistance programs, limits on personnel on vessels, or new personal protective equipment (PPE) requirements. For example, in June 2021, the USDA announced new funds for which fishers and fish farmers would be eligible. In September 2021, some seafood companies also started requiring workers to be vaccinated for COVID-19.
+
+## COVID-19 cases
+
+The majority of cases and outbreaks across all food systems happened early in the pandemic (Fig. \ref{fig:time}). For seafood, outbreaks and cases were more sporadic with peaks occurring in summer 2020 and the beginning of 2021 (Fig. \ref{fig:time}). With the seafood sector, outbreaks were documented in seafood plants and processing, seafood distributor, seafood wholesalers, and on vessel crews. Most seafood-related COVID-19 cases and outbreaks occurred in coastal areas, with Alaska at the top of the list (Fig. \ref{fig:map}).
+
+Despite being a small part of the overall food system, the seafood industry accounted for `r round(100*fern_by_sector$Total_cases[fern_by_sector$seafood=='seafood']/sum(fern_by_sector$Total_cases),2)`% and `r  round(100*fern_by_sector$Num_outbreaks[fern_by_sector$seafood=='seafood']/sum(fern_by_sector$Num_outbreaks),2)`% of all cases and outbreaks, respectively. It is difficult to obtain exact employment numbers in order to compare across industries. As an estimate, we used the total number of those employed in Food Manufacturing (NAICS 311000) in the USA (May 2020 = 1,596,500) and the total number of people employed in Seafood Product Preparation and Packaging (NAICS 311700), which was 29,920 (U.S. BLS 2020). Thus, there was a two order magnitude difference in employment for seafood versus the food system overall. As a rough estimate, we estimated there were 65 COVID-19 per 1000 workers in seafood versus 31 cases per 1000 for the overall food system. This translates into 6.6% of all seafood workers workers contracting COVID-19 in relation to their work.
+
+
+## Other results numbers for discussion
+
+The numbers for ALaska were in line with that other paper (539 part of outbreaks in seafood from March 1-October 13, 2020).
+
+Dyal et al. showed that about 3% of food processors contracted COVID during one month in 2020...
